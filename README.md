@@ -2,7 +2,7 @@
 
 A Model Context Protocol (MCP) server that integrates with **FreeCAD** to execute Python scripts, render 3D geometry headlessly, and return images with view metadata — all without opening a GUI.
 
-The server communicates over **Streamable HTTP**, making it compatible with any MCP client that supports the streamable HTTP transport.
+The server supports both **stdio** (default) and **Streamable HTTP** transports, making it compatible with a wide range of MCP clients (Claude Desktop, VS Code GitHub Copilot, etc.).
 
 ## Requirements
 
@@ -30,33 +30,58 @@ bash setup.sh
 
 ## Running the MCP Server
 
+The server can run in two modes: `stdio` (default) and `http`. `stdio` is typically launched directly by an MCP client, whereas `http` runs as a standalone long-running server.
+
+**Important:** FreeCAD requires the `DYLD_LIBRARY_PATH` environment variable to be set for the server to find its dynamic libraries.
+
+### 1. Stdio Mode (Default)
+
+Clients can launch the server using `stdio`. For example, a client could run this command:
 ```bash
 DYLD_LIBRARY_PATH=/Applications/FreeCAD.app/Contents/Resources/lib \
-  ./venv/bin/python server.py
+  /path/to/free-cad-mcp/venv/bin/python /path/to/free-cad-mcp/server.py --transport stdio
 ```
 
-By default it listens on **`http://127.0.0.1:8000`**.
+### 2. HTTP Mode
 
-```
-MCP endpoint: http://127.0.0.1:8000/mcp
-```
+If you prefer to run it as a service over Streamable HTTP:
 
-Options:
-```bash
-bash setup.sh --host 0.0.0.0   # bind to all interfaces
-bash setup.sh --port 9000      # custom port
-```
-
-To start the server directly after setup:
 ```bash
 DYLD_LIBRARY_PATH=/Applications/FreeCAD.app/Contents/Resources/lib \
-  ./venv/bin/python server.py --host 127.0.0.1 --port 8000
+  ./venv/bin/python server.py --transport http --host 127.0.0.1 --port 8000
+```
+
+By default the HTTP server listens on **`http://127.0.0.1:8000/mcp`**.
+
+Options for HTTP:
+```bash
+# when starting manually:
+DYLD_LIBRARY_PATH=/Applications/FreeCAD.app/Contents/Resources/lib \
+  ./venv/bin/python server.py --transport http --host 0.0.0.0 --port 9000
 ```
 
 ### Connect to Claude Desktop
 
-Add this block to `~/Library/Application Support/Claude/claude_desktop_config.json`:
+You can configure Claude Desktop to use either `stdio` (which launches the server on demand) or `streamable-http` (where you run the server yourself first).
 
+**Option A: stdio (Recommended)**
+Add this block to `~/Library/Application Support/Claude/claude_desktop_config.json`:
+```json
+{
+  "mcpServers": {
+    "freecad": {
+      "command": "/bin/bash",
+      "args": [
+        "-c",
+        "DYLD_LIBRARY_PATH=/Applications/FreeCAD.app/Contents/Resources/lib /Users/intelligentmachine/Documents/workspace/free-cad-mcp/venv/bin/python /Users/intelligentmachine/Documents/workspace/free-cad-mcp/server.py --transport stdio"
+      ]
+    }
+  }
+}
+```
+
+**Option B: HTTP**
+Ensure you start the server via HTTP first, then add this block:
 ```json
 {
   "mcpServers": {
@@ -68,21 +93,30 @@ Add this block to `~/Library/Application Support/Claude/claude_desktop_config.js
 }
 ```
 
-The server must be running before Claude Desktop connects. Start it with the command above.
-
-A template is provided:
-```bash
-cp mcp_config.example.json mcp_config.json
-```
-`mcp_config.json` is gitignored.
-
 ### Connect to VS Code GitHub Copilot
 
-Add to `.vscode/mcp.json` in your workspace:
+Add to `.vscode/mcp.json` in your workspace.
 
+**Option A: stdio**
 ```json
 {
-  "servers": {
+  "mcpServers": {
+    "freecad": {
+      "command": "/bin/bash",
+      "args": [
+        "-c",
+        "DYLD_LIBRARY_PATH=/Applications/FreeCAD.app/Contents/Resources/lib /Users/intelligentmachine/Documents/workspace/free-cad-mcp/venv/bin/python /Users/intelligentmachine/Documents/workspace/free-cad-mcp/server.py --transport stdio"
+      ]
+    }
+  }
+}
+```
+
+**Option B: HTTP**
+Ensure you start the server via HTTP first, then add this configuration:
+```json
+{
+  "mcpServers": {
     "freecad": {
       "type": "http",
       "url": "http://127.0.0.1:8000/mcp"
