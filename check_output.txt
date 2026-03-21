@@ -1,0 +1,22 @@
+
+Right Spool: closest to Left Spool (Distance: 0.0000 mm)
+
+Left Spool: closest to Right Spool (Distance: 0.0000 mm)
+
+Handle: closest to Right Cap (Distance: 0.0000 mm)
+
+Right Frame: closest to Right Spool (Distance: 0.0000 mm)
+
+Left Frame: closest to Left Cap (Distance: 0.0000 mm)
+
+Front Bar: closest to Right Frame (Distance: 0.3765 mm)
+
+Back Bar: closest to Right Frame (Distance: 0.3765 mm)
+
+Top Bar: closest to Right Frame (Distance: 0.3765 mm)
+
+Right Cap: closest to Right Spool (Distance: 0.0000 mm)
+
+Left Cap: closest to Left Spool (Distance: 0.0000 mm)
+
+Distance check finished.

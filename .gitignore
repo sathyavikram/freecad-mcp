@@ -1,0 +1,36 @@
+# ── Python ────────────────────────────────────────────────────────────────────
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.so
+
+# ── Virtual environment ────────────────────────────────────────────────────────
+venv/
+.venv/
+env/
+
+# ── MCP local config (contains absolute paths specific to your machine) ───────
+mcp_config.json
+
+# ── Test / generated output ────────────────────────────────────────────────────
+tests/output/*.png
+tests/output/*.svg
+tests/output/*.step
+
+# ── macOS ──────────────────────────────────────────────────────────────────────
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# ── Editors ───────────────────────────────────────────────────────────────────
+.vscode/settings.json
+.idea/
+*.swp
+*.swo
+*~
+
+# ── Dist / build ──────────────────────────────────────────────────────────────
+dist/
+build/
+*.egg-info/

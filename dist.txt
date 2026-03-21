@@ -1,0 +1,2 @@
+Handle -> Spool: 0.3765 mm
+Handle -> Cap_R: 0.0000 mm

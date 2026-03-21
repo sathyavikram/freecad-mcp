@@ -1,0 +1,6 @@
+# ── MCP framework ─────────────────────────────────────────────────────────────
+# The only packages that must be pip-installed.
+# All other runtime dependencies (matplotlib, numpy, Pillow, pivy, PySide2)
+# are bundled inside FreeCAD.app and loaded automatically by freecad_renderer.py.
+mcp>=1.26.0
+uvicorn>=0.30.0   # required for --transport http
