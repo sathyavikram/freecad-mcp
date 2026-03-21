@@ -34,3 +34,9 @@ tests/output/*.step
 dist/
 build/
 *.egg-info/
+export/
+dist.txt
+check_output.txt
+tests/output/
+*.step
+*.stl
