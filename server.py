@@ -317,9 +317,19 @@ async def _run_http(host: str, port: int):
 if __name__ == "__main__":
     import asyncio
 
-    parser = argparse.ArgumentParser(description="FreeCAD MCP Server (Streamable HTTP)")
-    parser.add_argument("--host", default="127.0.0.1", help="Bind host (default: 127.0.0.1)")
-    parser.add_argument("--port", type=int, default=8000, help="Bind port (default: 8000)")
+    parser = argparse.ArgumentParser(description="FreeCAD MCP Server")
+    parser.add_argument("--transport", choices=["stdio", "http"], default="stdio", help="Transport mechanism (default: stdio)")
+    parser.add_argument("--host", default="127.0.0.1", help="Bind host for HTTP transport (default: 127.0.0.1)")
+    parser.add_argument("--port", type=int, default=8000, help="Bind port for HTTP transport (default: 8000)")
     args = parser.parse_args()
 
-    asyncio.run(_run_http(args.host, args.port))
+    if args.transport == "stdio":
+        async def _run_stdio():
+            from mcp.server.stdio import stdio_server
+            import sys
+            # stdio Server does its own setup.
+            async with stdio_server() as (read_stream, write_stream):
+                await app.run(read_stream, write_stream, app.create_initialization_options())
+        asyncio.run(_run_stdio())
+    else:
+        asyncio.run(_run_http(args.host, args.port))
