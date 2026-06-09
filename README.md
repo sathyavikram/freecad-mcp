@@ -1,8 +1,11 @@
 # freecad-mcp
 
-A Model Context Protocol (MCP) server that integrates with **FreeCAD** to execute Python scripts, render 3D geometry headlessly, and return images with view metadata — all without opening a GUI.
+A Model Context Protocol (MCP) server that integrates with **FreeCAD** to execute Python
+scripts, render 3D geometry headlessly, and return images with geometry metadata —
+all without opening a GUI. Designed for LLMs and agents to visually inspect CAD parts,
+joints, and assemblies.
 
-The server uses **stdio** transport and is launched directly by MCP clients (Claude Desktop, VS Code GitHub Copilot, etc.).
+---
 
 ## Requirements
 
@@ -12,32 +15,24 @@ The server uses **stdio** transport and is launched directly by MCP clients (Cla
 | [FreeCAD ≥ 1.0](https://www.freecad.org/downloads.php) | Must be installed at `/Applications/FreeCAD.app` |
 | Python | Provided by FreeCAD (3.11) — no separate install needed |
 | VTK | Bundled inside FreeCAD.app — no separate install needed |
+| Pillow | Installed by `setup.sh` — required for `show_dimensions` |
 
 ---
 
 ## Setup
 
 ```bash
-# 1. Clone or open the project
 cd /path/to/free-cad-mcp
-
-# 2. Run the one-time setup script (creates venv + installs dependencies)
 bash setup.sh
 ```
 
-`setup.sh` creates a Python virtual environment rooted in FreeCAD's bundled Python (so `FreeCAD`, `Part`, `Mesh`, `vtk`, `numpy`, etc. are all available) and installs the `mcp` pip dependency.
-
 ---
 
-## Running the MCP Server
+## Connecting to an MCP client
 
-The server uses **stdio** transport and is launched on-demand by your MCP client — you do not need to start it manually.
+### Claude Desktop
 
-**Important:** FreeCAD requires the `DYLD_LIBRARY_PATH` environment variable to be set so the server can find its dynamic libraries.
-
-### Connect to Claude Desktop
-
-Add this block to `~/Library/Application Support/Claude/claude_desktop_config.json`:
+`~/Library/Application Support/Claude/claude_desktop_config.json`:
 
 ```json
 {
@@ -46,16 +41,16 @@ Add this block to `~/Library/Application Support/Claude/claude_desktop_config.js
       "command": "/bin/bash",
       "args": [
         "-c",
-        "DYLD_LIBRARY_PATH=/Applications/FreeCAD.app/Contents/Resources/lib /Users/intelligentmachine/Documents/workspace/free-cad-mcp/venv/bin/python /Users/intelligentmachine/Documents/workspace/free-cad-mcp/server.py"
+        "DYLD_LIBRARY_PATH=/Applications/FreeCAD.app/Contents/Resources/lib /path/to/free-cad-mcp/venv/bin/python /path/to/free-cad-mcp/server.py"
       ]
     }
   }
 }
 ```
 
-### Connect to VS Code GitHub Copilot
+### VS Code GitHub Copilot
 
-Add to `.vscode/mcp.json` in your workspace:
+`.vscode/mcp.json`:
 
 ```json
 {
@@ -64,7 +59,7 @@ Add to `.vscode/mcp.json` in your workspace:
       "command": "/bin/bash",
       "args": [
         "-c",
-        "DYLD_LIBRARY_PATH=/Applications/FreeCAD.app/Contents/Resources/lib /Users/intelligentmachine/Documents/workspace/free-cad-mcp/venv/bin/python /Users/intelligentmachine/Documents/workspace/free-cad-mcp/server.py"
+        "DYLD_LIBRARY_PATH=/Applications/FreeCAD.app/Contents/Resources/lib /path/to/free-cad-mcp/venv/bin/python /path/to/free-cad-mcp/server.py"
       ]
     }
   }
@@ -73,89 +68,149 @@ Add to `.vscode/mcp.json` in your workspace:
 
 ---
 
-## Tool: `execute_freecad_script`
+## Tools
 
-Execute a FreeCAD Python script from a file path and get back a rendered PNG image + geometry metadata.
+### `render_freecad_script`
 
-### Input parameters
+Execute a FreeCAD Python script and return rendered PNG image(s) with geometry metadata.
+Use this as the **starting point** for any inspection — it gives you views of the model
+plus the object labels and metadata needed to call the other tools.
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `script_path` | string | **required** | Absolute or `~`-relative path to a FreeCAD `.py` file. `FreeCAD`, `App`, `Part`, `Mesh`, `MeshPart`, `Draft`, `Sketcher`, and `doc` are pre-imported. |
+| `render_views` | string[] | — | Render multiple views in one call. Returns a labelled PNG per view. Example: `["Isometric","Front","Top","Right"]`. When set, `view_angle` and `elevation`/`azimuth` are ignored. |
+| `view_angle` | string | `Isometric` | Single preset: `Top` `Bottom` `Front` `Back` `Left` `Right` `Isometric`. Ignored when `render_views` is set. |
+| `elevation` | number | — | Custom camera elevation in degrees (-90 to 90). Use with `azimuth`. |
+| `azimuth` | number | — | Custom camera azimuth in degrees (0–360). Use with `elevation`. |
+| `zoom` | number | `1.0` | `1.0` = fit-all. `2.0` = 2× closer. `0.5` = 2× farther. |
+| `width` | integer | `1600` | Output image width in pixels. |
+| `height` | integer | `1200` | Output image height in pixels. |
+| `background` | string | `#0d1117` | Background hex colour. `"#ffffff"` for white. |
+
+**Response** — text metadata + one `image/png` per view:
+
+| Metadata field | Description |
+|---|---|
+| `shape_info[].label` | Object label — use this in the other tools |
+| `shape_info[].centroid` | `[x, y, z]` centre in mm |
+| `shape_info[].volume` | Volume in mm³ |
+| `shape_info[].face_count` / `edge_count` | Topology |
+| `shape_info[].is_solid` | `true` = Solid body |
+| `shape_info[].color_rgb` | `[r, g, b]` 0–1 |
+| `shape_info[].placement` | `{position, rotation_axis, rotation_angle_deg}` |
+| `touching_pairs` | Auto-detected mated/adjacent object pairs |
+| `joints` | Joints parsed from `# @joint` script comments |
+| `bounding_box` | Overall scene bounds in mm |
+
+---
+
+### `inspect_freecad_assembly`
+
+Visually inspect a multi-body assembly. Use after `render_freecad_script` has identified
+which parts to investigate.
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `script_path` | string | **required** | Absolute path to the FreeCAD script. |
+| `view_angle` | string | `Isometric` | Camera preset. |
+| `zoom` | number | `1.0` | Zoom factor. |
+| `explode_factor` | number | `0.0` | Displace parts outward from the assembly centroid. `0` = normal. `1.0` = moderate. `2.0` = wide. Geometry is not modified — render-only. |
+| `highlight_objects` | string[] | — | Render these objects at full opacity; all others dimmed to ~12% grey. Use exact `label` values from `shape_info`. |
+| `focus_object` | string | — | Render only this object, zoomed to fit. All others excluded. Use exact `label` from `shape_info`. |
+| `show_dimensions` | boolean | `false` | Draw W × D × H in mm at the corner and per-object name labels at centroids. Requires Pillow. |
+
+---
+
+### `section_freecad_model`
+
+Diagnostic views: cross-section cuts, wireframe, surface normal map, curvature heat-map,
+and per-object orientation analysis.
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `script_path` | string | **required** | Absolute path to the FreeCAD script. |
+| `view_angle` | string | `Isometric` | Camera preset. |
+| `zoom` | number | `1.0` | Zoom factor. |
+| `section_plane` | string or object | — | Clip the model to reveal internal geometry. `"XY"` \| `"XZ"` \| `"YZ"` or `{"normal":[nx,ny,nz],"origin":[ox,oy,oz]}`. |
+| `section_offset` | number | `0.5` | Cut position along the bounding box (0.0–1.0). `0.5` = midplane. |
+| `render_mode` | string | `shaded` | `shaded` — Phong + feature edges. `wireframe` — all edges, no fill. `shaded+wireframe` — fill + wireframe overlay. `normals` — face normals as RGB. `curvature` — Gaussian curvature heat-map (blue=flat → red=convex peak). |
+| `orientation_check` | boolean | `false` | Add to each `shape_info` entry: `dimensions_mm`, `center_of_mass`, `inertia_matrix`, `estimated_print_face`, `aspect_ratios`. |
+
+---
+
+### `check_interference`
+
+Compute the Boolean intersection volume (mm³) between named object pairs.
+No image produced — pure geometry analysis via `Part.common()`.
+Get object labels from `shape_info` returned by `render_freecad_script`.
 
 | Parameter | Type | Required | Description |
 |---|---|---|---|
-| `script_path` | string | ✅ | Absolute or `~`-relative path to a `.py` file. `FreeCAD`, `App`, `Part`, `Mesh`, `MeshPart`, `Draft`, `Sketcher`, and `doc` are pre-imported. `__file__` is set to the script path for relative imports. |
-| `view_angle` | string | | Preset view: `Top` `Bottom` `Front` `Back` `Left` `Right` `Isometric` (default: `Isometric`) |
-| `elevation` | number | | Custom camera elevation in degrees (-90 to 90). Use with `azimuth` to override `view_angle`. |
-| `azimuth` | number | | Custom camera azimuth in degrees (0–360). Use with `elevation` to override `view_angle`. |
-| `zoom` | number | | Zoom factor — default `1.0` fits all geometry, `2.0` is 2× closer, `0.5` is 2× farther. |
-| `width` | integer | | Output image width in pixels (default: `1600`) |
-| `height` | integer | | Output image height in pixels (default: `1200`) |
-| `background` | string | | Background hex colour, e.g. `"#ffffff"` for white or `"#0d1117"` for dark (default) |
+| `script_path` | string | ✅ | Absolute path to the FreeCAD script. |
+| `pairs` | `[[str, str]]` | ✅ | Object label pairs to check. Example: `[["Body","Body001"],["Body","Body002"]]` |
 
-### Output
+**Response** — markdown table:
 
-- **Text**: formatted summary with view angle, elevation, azimuth, zoom, bounding box, per-object type/volume, and full JSON metadata
-- **Image**: rendered PNG of the geometry (1600×1200 by default, high-resolution)
+| Pair | Overlap (mm³) | Clear? |
+|---|---|---|
+| Body ↔ Body001 | 0.00000 | ✅ |
+| Body ↔ Body002 | 14.73200 | ❌ |
 
-### Example
+`overlap_volume_mm3 > 0.001` on a clearance joint = design error.
 
-Given a file `my_part.py`:
-```python
-import Part
+---
 
-box = Part.makeBox(30, 20, 10)
-hole = Part.makeCylinder(5, 10, App.Vector(15, 10, 0))
-Part.show(box.cut(hole))
+## Typical agent workflow
+
 ```
+1. render_freecad_script   render_views=["Isometric","Front","Top","Right"]
+        → inspect overall shape, read shape_info labels, touching_pairs, joints
 
-Tool call:
-```json
-{
-  "script_path": "/path/to/my_part.py",
-  "view_angle": "Isometric",
-  "zoom": 1.2
-}
+2. inspect_freecad_assembly  explode_factor=1.2
+        → confirm all parts are present and correctly shaped when separated
+
+3. inspect_freecad_assembly  highlight_objects=["BodyA","BodyB"]
+        → focus on each joint interface identified in touching_pairs
+
+4. check_interference  pairs=[["BodyA","BodyB"],...]
+        → verify overlap_volume_mm3 = 0 for clearance joints
+
+5. section_freecad_model  section_plane="XZ"  section_offset=0.5
+        → inspect internal features: bores, threads, wall thickness
+
+6. inspect_freecad_assembly  focus_object="BodyA"  show_dimensions=true
+        → close-up of suspect part with dimension labels
 ```
 
 ---
 
-## Project Structure
+## Joint annotation DSL
+
+Declare joints in FreeCAD script comments — automatically parsed into `metadata.joints`:
+
+```python
+# @joint BodyA.Face3 -> BodyB.Face1  type=sliding  clearance=0.2mm
+# @joint BodyA.Face5 -> BodyC.Face1  type=press
+# @constraint BodyA  coaxial  BodyB  axis=Z
+```
+
+Cross-check: every `metadata.joints` entry should appear in `metadata.touching_pairs`.
+A mismatch means a declared joint is not geometrically mated.
+
+---
+
+## Project structure
 
 ```
 free-cad-mcp/
-├── server.py                 # MCP server (stdio transport)
-├── freecad_renderer.py       # Subprocess renderer: FreeCAD → VTK → PNG
-├── requirements.txt          # pip dependencies (mcp)
-├── setup.sh                  # One-time setup script
-├── mcp_config.example.json   # Example MCP client config
+├── server.py               # MCP server — 4 tools
+├── freecad_renderer.py     # Subprocess renderer: FreeCAD → VTK → PNG
+├── requirements.txt        # mcp + Pillow
+├── setup.sh                # One-time venv setup
+├── mcp_config.example.json # Example MCP client config
 └── .gitignore
 ```
-
-## How It Works
-
-```
-MCP Client (Claude / Copilot)
-        |  stdio (JSON-RPC)
-        v
-    server.py  (asyncio + mcp stdio_server)
-        |  subprocess (JSON stdin → JSON stdout)
-        v
-freecad_renderer.py
-   +-- sys.path <- FreeCAD libs (DYLD_LIBRARY_PATH + FreeCAD site-packages)
-   +-- exec(script) in isolated FreeCAD document
-   +-- MeshPart.meshFromShape → vtkPolyData (tessellation)
-   +-- VTK offscreen renderer (Phong shading, edge highlighting, 3-point lighting)
-   +-- vtkPNGWriter → PNG bytes → base64
-```
-
-The renderer runs in an **isolated subprocess** per request — a crash or timeout in FreeCAD cannot bring down the MCP server.
-
-### Rendering pipeline details
-
-- **VTK offscreen rendering** — no display server required; uses `vtkRenderWindow.SetOffScreenRendering(1)`
-- **High-quality tessellation** — `MeshPart.meshFromShape` with `LinearDeflection=0.02` / `AngularDeflection=0.05` for smooth curves
-- **Phong shading** — ambient (0.18) + diffuse (0.72) + specular (0.55) per object
-- **Feature edge overlay** — crisp boundary lines at edges sharper than 25°
-- **3-point lighting** — warm key light, cool fill light, rim/back light for silhouette separation
-- **Per-object colour palette** — up to 6 distinct colours cycling for multi-body models
 
 ---
 
@@ -163,8 +218,9 @@ The renderer runs in an **isolated subprocess** per request — a crash or timeo
 
 | Problem | Fix |
 |---|---|
-| `ModuleNotFoundError: No module named 'FreeCAD'` | Make sure `DYLD_LIBRARY_PATH` is set in the client config command |
-| `Error: Failed to open library "3DconnexionNavlib"` | Harmless warning — 3Dconnexion mouse driver not installed; rendering still works |
-| `Renderer process failed (exit 1)` | Check that FreeCAD is installed at `/Applications/FreeCAD.app` |
-| Script runs but no geometry appears | Ensure script calls `Part.show(shape)` or `doc.addObject(...)` to add objects to the document |
-| `ModuleNotFoundError: No module named 'vtk'` | VTK is bundled with FreeCAD 1.0+ — verify your FreeCAD version |
+| `ModuleNotFoundError: No module named 'FreeCAD'` | Set `DYLD_LIBRARY_PATH` in the client config command |
+| `Error: Failed to open library "3DconnexionNavlib"` | Harmless warning — rendering still works |
+| `Renderer process failed (exit 1)` | Verify FreeCAD is at `/Applications/FreeCAD.app` |
+| No geometry rendered | Ensure the script calls `Part.show()` or `doc.addObject()` |
+| `show_dimensions` has no effect | Re-run `setup.sh` to install Pillow in the venv |
+| `check_interference` returns object not found | Use `label` values from `shape_info`, not `name` |

@@ -3,3 +3,8 @@
 # All other runtime dependencies (vtk, numpy, etc.)
 # are bundled inside FreeCAD.app and loaded automatically by freecad_renderer.py.
 mcp>=1.26.0
+
+# ── Enhancement 5: Dimension overlay ──────────────────────────────────────────
+# Required for show_dimensions=true (draws W×D×H labels and centroid markers
+# onto rendered PNGs). Gracefully skipped at runtime if absent.
+Pillow>=10.0.0
