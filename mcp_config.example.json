@@ -1,8 +1,11 @@
 {
   "mcpServers": {
     "freecad": {
-      "type": "streamable-http",
-      "url": "http://127.0.0.1:8000/mcp"
+      "command": "/bin/bash",
+      "args": [
+        "-c",
+        "DYLD_LIBRARY_PATH=/Applications/FreeCAD.app/Contents/Resources/lib /path/to/free-cad-mcp/venv/bin/python /path/to/free-cad-mcp/server.py"
+      ]
     }
   }
 }

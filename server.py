@@ -7,8 +7,8 @@ The tool `execute_freecad_script` accepts a path to a FreeCAD Python script plus
 optional view/zoom parameters, executes the script in an isolated subprocess, and
 returns a rendered PNG image alongside view/geometry metadata.
 
-Rendering is headless (no display needed) using matplotlib + FreeCAD's
-MeshPart tessellation.
+Rendering is headless (no display needed) using VTK + FreeCAD's MeshPart tessellation.
+Transport: stdio only (launched directly by MCP clients such as Claude Desktop / VS Code).
 """
 
 import os
@@ -17,7 +17,6 @@ import json
 import base64
 import time
 import logging
-import argparse
 import subprocess
 from pathlib import Path
 from typing import List, Union
@@ -121,7 +120,7 @@ async def list_tools() -> List[Tool]:
             description=(
                 "Execute a FreeCAD Python script, render the resulting 3-D geometry "
                 "headlessly, and return a PNG image together with view/geometry metadata. "
-                "Use this to create, inspect, or modify 3D models through FreeCAD's Python API."
+                "Use this to create or inspect 3D models through FreeCAD's Python API."
             ),
             inputSchema={
                 "type": "object",
@@ -131,7 +130,8 @@ async def list_tools() -> List[Tool]:
                         "description": (
                             "Absolute or ~ -relative path to a FreeCAD Python (.py) file to "
                             "execute. The script runs with `FreeCAD`, `App`, `Part`, `Mesh`, "
-                            "`MeshPart`, `Draft`, and `doc` pre-imported. "
+                            "`MeshPart`, `Draft`, `Sketcher`, and `doc` pre-imported. "
+                            "`__file__` is also set to the script path for relative imports. "
                             "Add objects to the document via Part.show(), doc.addObject(), etc."
                         ),
                     },
@@ -160,17 +160,17 @@ async def list_tools() -> List[Tool]:
                     "zoom": {
                         "type": "number",
                         "description": (
-                            "Zoom factor relative to 'fit all'. "
+                            "Zoom factor relative to 'fit all'. Default: 1.0. "
                             "1.0 = fit geometry to frame, 2.0 = 2x closer, 0.5 = 2x farther out."
                         ),
                     },
                     "width": {
                         "type": "integer",
-                        "description": "Output image width in pixels. Default: 800.",
+                        "description": "Output image width in pixels. Default: 1600 (high-resolution).",
                     },
                     "height": {
                         "type": "integer",
-                        "description": "Output image height in pixels. Default: 600.",
+                        "description": "Output image height in pixels. Default: 1200 (high-resolution).",
                     },
                     "background": {
                         "type": "string",
@@ -217,8 +217,8 @@ async def call_tool(name: str, arguments: dict) -> List[Union[TextContent, Image
         "elevation":  arguments.get("elevation"),
         "azimuth":    arguments.get("azimuth"),
         "zoom":       arguments.get("zoom", 1.0),
-        "width":      arguments.get("width", 800),
-        "height":     arguments.get("height", 600),
+        "width":      arguments.get("width", 1600),
+        "height":     arguments.get("height", 1200),
         "background": arguments.get("background", "#0d1117"),
     }
 
@@ -276,60 +276,13 @@ async def call_tool(name: str, arguments: dict) -> List[Union[TextContent, Image
 
 # ── Entry point ────────────────────────────────────────────────────────────────
 
-async def _run_http(host: str, port: int):
-    import uvicorn
-    from mcp.server.streamable_http_manager import StreamableHTTPSessionManager
-
-    session_manager = StreamableHTTPSessionManager(app=app, stateless=True)
-
-    async def asgi_app(scope, receive, send):
-        if scope["type"] == "lifespan":
-            await receive()  # lifespan.startup
-            async with session_manager.run():
-                await send({"type": "lifespan.startup.complete"})
-                await receive()  # lifespan.shutdown
-            await send({"type": "lifespan.shutdown.complete"})
-        elif scope["type"] == "http":
-            path = scope.get("path", "")
-            method = scope.get("method", "?")
-            log.debug("HTTP %s %s", method, path)
-            if path == "/mcp":
-                await session_manager.handle_request(scope, receive, send)
-            else:
-                await send({"type": "http.response.start", "status": 404,
-                            "headers": [(b"content-type", b"text/plain")]})
-                await send({"type": "http.response.body",
-                            "body": b"Not found. Use POST /mcp"})
-
-    log.info("FreeCAD MCP server (Streamable HTTP) listening on http://%s:%d", host, port)
-    log.info("  MCP endpoint: http://%s:%d/mcp", host, port)
-
-    config = uvicorn.Config(
-        asgi_app,
-        host=host,
-        port=port,
-        log_level="warning",
-    )
-    server = uvicorn.Server(config)
-    await server.serve()
-
-
 if __name__ == "__main__":
     import asyncio
 
-    parser = argparse.ArgumentParser(description="FreeCAD MCP Server")
-    parser.add_argument("--transport", choices=["stdio", "http"], default="stdio", help="Transport mechanism (default: stdio)")
-    parser.add_argument("--host", default="127.0.0.1", help="Bind host for HTTP transport (default: 127.0.0.1)")
-    parser.add_argument("--port", type=int, default=8000, help="Bind port for HTTP transport (default: 8000)")
-    args = parser.parse_args()
+    async def _run_stdio():
+        from mcp.server.stdio import stdio_server
+        log.info("FreeCAD MCP server starting (stdio transport)")
+        async with stdio_server() as (read_stream, write_stream):
+            await app.run(read_stream, write_stream, app.create_initialization_options())
 
-    if args.transport == "stdio":
-        async def _run_stdio():
-            from mcp.server.stdio import stdio_server
-            import sys
-            # stdio Server does its own setup.
-            async with stdio_server() as (read_stream, write_stream):
-                await app.run(read_stream, write_stream, app.create_initialization_options())
-        asyncio.run(_run_stdio())
-    else:
-        asyncio.run(_run_http(args.host, args.port))
+    asyncio.run(_run_stdio())
